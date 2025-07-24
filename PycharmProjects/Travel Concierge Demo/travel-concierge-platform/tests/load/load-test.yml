@@ -1,0 +1,419 @@
+config:
+  target: 'https://api.travel-concierge.com'
+  phases:
+    # Warm-up phase
+    - duration: 60
+      arrivalRate: 5
+      name: "Warm-up"
+    
+    # Ramp-up phase
+    - duration: 120
+      arrivalRate: 5
+      rampTo: 50
+      name: "Ramp-up"
+    
+    # Sustained load phase
+    - duration: 300
+      arrivalRate: 50
+      name: "Sustained load"
+    
+    # Peak load phase
+    - duration: 180
+      arrivalRate: 50
+      rampTo: 100
+      name: "Peak load"
+    
+    # Stress test phase
+    - duration: 120
+      arrivalRate: 100
+      rampTo: 200
+      name: "Stress test"
+    
+    # Cool-down phase
+    - duration: 60
+      arrivalRate: 200
+      rampTo: 5
+      name: "Cool-down"
+  
+  # HTTP settings
+  http:
+    timeout: 30
+    pool: 10
+    retry: 3
+  
+  # Plugin settings
+  plugins:
+    metrics-by-endpoint: {}
+    expect: {}
+  
+  # Processor for dynamic data
+  processor: "./load-test-processor.js"
+  
+  # Environment-specific settings
+  environments:
+    development:
+      target: 'http://localhost:3001'
+      phases:
+        - duration: 30
+          arrivalRate: 2
+          name: "Dev warm-up"
+        - duration: 60
+          arrivalRate: 2
+          rampTo: 10
+          name: "Dev ramp-up"
+        - duration: 120
+          arrivalRate: 10
+          name: "Dev sustained"
+    
+    staging:
+      target: 'https://staging-api.travel-concierge.com'
+      phases:
+        - duration: 60
+          arrivalRate: 10
+          name: "Staging warm-up"
+        - duration: 120
+          arrivalRate: 10
+          rampTo: 30
+          name: "Staging ramp-up"
+        - duration: 300
+          arrivalRate: 30
+          name: "Staging sustained"
+        - duration: 120
+          arrivalRate: 30
+          rampTo: 50
+          name: "Staging peak"
+    
+    production:
+      target: 'https://api.travel-concierge.com'
+      phases:
+        - duration: 60
+          arrivalRate: 5
+          name: "Production warm-up"
+        - duration: 120
+          arrivalRate: 5
+          rampTo: 50
+          name: "Production ramp-up"
+        - duration: 300
+          arrivalRate: 50
+          name: "Production sustained"
+        - duration: 180
+          arrivalRate: 50
+          rampTo: 100
+          name: "Production peak"
+        - duration: 120
+          arrivalRate: 100
+          rampTo: 200
+          name: "Production stress"
+        - duration: 60
+          arrivalRate: 200
+          rampTo: 5
+          name: "Production cool-down"
+
+# Test scenarios
+scenarios:
+  # Health check scenario
+  - name: "Health Check"
+    weight: 10
+    flow:
+      - get:
+          url: "/health"
+          expect:
+            - statusCode: 200
+            - contentType: json
+            - hasProperty: "status"
+            - hasProperty: "timestamp"
+  
+  # Image upload scenario
+  - name: "Image Upload"
+    weight: 30
+    flow:
+      - post:
+          url: "/api/v1/image-search/upload"
+          headers:
+            Content-Type: "multipart/form-data"
+            Authorization: "Bearer {{ $randomString() }}"
+          formData:
+            image: "@tests/fixtures/images/beach.jpg"
+          expect:
+            - statusCode: [200, 201]
+            - contentType: json
+            - hasProperty: "requestId"
+            - hasProperty: "status"
+      
+      # Wait for processing
+      - think: 5
+      
+      # Check processing status
+      - get:
+          url: "/api/v1/image-search/status/{{ requestId }}"
+          expect:
+            - statusCode: 200
+            - contentType: json
+            - hasProperty: "status"
+  
+  # Image search results scenario
+  - name: "Image Search Results"
+    weight: 25
+    flow:
+      - get:
+          url: "/api/v1/image-search/results/{{ $randomString() }}"
+          expect:
+            - statusCode: [200, 404]
+            - contentType: json
+  
+  # Trip planning scenario
+  - name: "Trip Planning"
+    weight: 20
+    flow:
+      - post:
+          url: "/api/v1/trip-planning/create"
+          headers:
+            Content-Type: "application/json"
+            Authorization: "Bearer {{ $randomString() }}"
+          json:
+            destination: "{{ $randomString() }}"
+            startDate: "{{ $isoTimestamp() }}"
+            endDate: "{{ $isoTimestamp() }}"
+            budget: {{ $randomNumber(1000, 10000) }}
+            travelers: {{ $randomNumber(1, 6) }}
+            preferences:
+              - "beach"
+              - "culture"
+              - "adventure"
+          expect:
+            - statusCode: [200, 201]
+            - contentType: json
+            - hasProperty: "tripId"
+            - hasProperty: "status"
+      
+      # Wait for planning
+      - think: 3
+      
+      # Get trip details
+      - get:
+          url: "/api/v1/trip-planning/trip/{{ tripId }}"
+          expect:
+            - statusCode: 200
+            - contentType: json
+            - hasProperty: "itinerary"
+  
+  # Chat interaction scenario
+  - name: "Chat Interaction"
+    weight: 15
+    flow:
+      - post:
+          url: "/api/v1/chat/message"
+          headers:
+            Content-Type: "application/json"
+            Authorization: "Bearer {{ $randomString() }}"
+          json:
+            message: "I want to plan a trip to {{ $randomString() }}"
+            sessionId: "{{ $randomString() }}"
+            context:
+              userPreferences: ["beach", "budget"]
+          expect:
+            - statusCode: 200
+            - contentType: json
+            - hasProperty: "response"
+            - hasProperty: "sessionId"
+      
+      # Follow-up message
+      - think: 2
+      
+      - post:
+          url: "/api/v1/chat/message"
+          headers:
+            Content-Type: "application/json"
+            Authorization: "Bearer {{ $randomString() }}"
+          json:
+            message: "What about the weather in {{ $randomString() }}?"
+            sessionId: "{{ sessionId }}"
+            context:
+              previousMessage: "I want to plan a trip"
+          expect:
+            - statusCode: 200
+            - contentType: json
+            - hasProperty: "response"
+
+# WebSocket scenarios
+websocket:
+  # WebSocket connection scenario
+  - name: "WebSocket Connection"
+    weight: 5
+    flow:
+      - connect:
+          url: "wss://ws.travel-concierge.com"
+          headers:
+            Authorization: "Bearer {{ $randomString() }}"
+          expect:
+            - statusCode: 101
+      
+      # Send message
+      - emit:
+          channel: "chat"
+          data:
+            type: "message"
+            content: "Hello, I need travel advice"
+            sessionId: "{{ $randomString() }}"
+      
+      # Wait for response
+      - think: 3
+      
+      # Listen for response
+      - listen:
+          channel: "chat"
+          expect:
+            - hasProperty: "type"
+            - hasProperty: "content"
+      
+      # Disconnect
+      - disconnect: {}
+
+# Custom processor for dynamic data
+processor: |
+  function generateRandomString() {
+    return Math.random().toString(36).substring(2, 15);
+  }
+  
+  function generateRandomNumber(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+  
+  function generateISOTimestamp() {
+    const date = new Date();
+    date.setDate(date.getDate() + Math.floor(Math.random() * 365));
+    return date.toISOString();
+  }
+  
+  // Set global variables for use in scenarios
+  global.$randomString = generateRandomString;
+  global.$randomNumber = generateRandomNumber;
+  global.$isoTimestamp = generateISOTimestamp;
+
+# Metrics collection
+metrics:
+  # Custom metrics
+  custom:
+    - name: "response_time_p95"
+      type: "histogram"
+      unit: "milliseconds"
+    
+    - name: "error_rate"
+      type: "counter"
+      unit: "percentage"
+    
+    - name: "throughput"
+      type: "rate"
+      unit: "requests_per_second"
+    
+    - name: "concurrent_users"
+      type: "gauge"
+      unit: "users"
+
+# Reporting
+reporting:
+  # Console output
+  console:
+    enabled: true
+    format: "json"
+  
+  # File output
+  file:
+    enabled: true
+    path: "./load-test-results.json"
+    format: "json"
+  
+  # InfluxDB (if configured)
+  influxdb:
+    enabled: false
+    url: "http://localhost:8086"
+    database: "artillery"
+    username: "artillery"
+    password: "artillery"
+  
+  # Prometheus (if configured)
+  prometheus:
+    enabled: false
+    url: "http://localhost:9090"
+    job: "artillery-load-test"
+
+# Thresholds for test validation
+thresholds:
+  # Response time thresholds
+  - name: "response_time_p95"
+    threshold: 2000
+    operator: "<="
+    description: "95th percentile response time should be under 2 seconds"
+  
+  - name: "response_time_p99"
+    threshold: 5000
+    operator: "<="
+    description: "99th percentile response time should be under 5 seconds"
+  
+  # Error rate thresholds
+  - name: "error_rate"
+    threshold: 5
+    operator: "<="
+    description: "Error rate should be under 5%"
+  
+  # Throughput thresholds
+  - name: "throughput"
+    threshold: 100
+    operator: ">="
+    description: "Throughput should be at least 100 requests per second"
+  
+  # HTTP status code thresholds
+  - name: "http_5xx"
+    threshold: 0
+    operator: "=="
+    description: "No 5xx errors should occur"
+  
+  - name: "http_4xx"
+    threshold: 10
+    operator: "<="
+    description: "4xx errors should be under 10%"
+
+# Custom functions for test data
+functions:
+  # Generate random destination
+  randomDestination: |
+    function() {
+      const destinations = [
+        "Paris, France",
+        "Tokyo, Japan",
+        "New York, USA",
+        "Sydney, Australia",
+        "Barcelona, Spain",
+        "Bangkok, Thailand",
+        "Cape Town, South Africa",
+        "Rio de Janeiro, Brazil",
+        "Istanbul, Turkey",
+        "Singapore"
+      ];
+      return destinations[Math.floor(Math.random() * destinations.length)];
+    }
+  
+  # Generate random user preferences
+  randomPreferences: |
+    function() {
+      const preferences = [
+        "beach", "mountains", "city", "culture", "adventure",
+        "relaxation", "food", "history", "nature", "shopping"
+      ];
+      const count = Math.floor(Math.random() * 3) + 1;
+      const selected = [];
+      for (let i = 0; i < count; i++) {
+        const pref = preferences[Math.floor(Math.random() * preferences.length)];
+        if (!selected.includes(pref)) {
+          selected.push(pref);
+        }
+      }
+      return selected;
+    }
+  
+  # Generate random budget
+  randomBudget: |
+    function() {
+      const budgets = [1000, 2000, 3000, 5000, 7500, 10000, 15000, 20000];
+      return budgets[Math.floor(Math.random() * budgets.length)];
+    } 

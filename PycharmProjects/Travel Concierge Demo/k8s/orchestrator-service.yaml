@@ -1,0 +1,477 @@
+---
+# Kubernetes manifests for Orchestrator Service
+# Production-ready deployment with high availability, security, and scalability
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orchestrator-service-account
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+  annotations:
+    iam.gke.io/gcp-service-account: orchestrator-service@travel-concierge-prod.iam.gserviceaccount.com
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orchestrator-service-config
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+data:
+  # GCP Configuration
+  GCP_PROJECT_ID: "travel-concierge-prod"
+  GCP_REGION: "us-central1"
+  
+  # Pub/Sub Configuration
+  PUBSUB_REQUEST_TOPIC: "travel-requests"
+  PUBSUB_RESPONSE_TOPIC: "travel-responses"
+  PUBSUB_SUBSCRIPTION_NAME: "orchestrator-subscription"
+  
+  # Firestore Configuration
+  FIRESTORE_COLLECTION_NAME: "sessions"
+  
+  # Vertex AI Configuration
+  VERTEX_AI_MODEL_NAME: "gemini-2-0-ultra"
+  VERTEX_AI_ENDPOINT: "projects/travel-concierge-prod/locations/us-central1/endpoints/gemini-ultra-endpoint"
+  
+  # WebSocket Configuration
+  WEBSOCKET_PORT: "3001"
+  WEBSOCKET_CORS_ORIGIN: "https://travel-concierge.com"
+  
+  # Application Configuration
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  REQUEST_TIMEOUT_MS: "30000"
+  AGENT_REQUEST_TIMEOUT_MS: "60000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orchestrator-service-secrets
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+type: Opaque
+data:
+  # JWT Secret for WebSocket authentication
+  JWT_SECRET: "b3JjaGVzdHJhdG9yLWp3dC1zZWNyZXQtcHJvZHVjdGlvbg=="
+  
+  # Service Account Key (base64 encoded)
+  GOOGLE_APPLICATION_CREDENTIALS: "base64-encoded-service-account-key"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator-service
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: orchestrator-service
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: orchestrator-service
+        component: backend
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: orchestrator-service-account
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: orchestrator-service
+        image: gcr.io/travel-concierge-prod/orchestrator-service:latest
+        imagePullPolicy: Always
+        ports:
+        - name: websocket
+          containerPort: 3001
+          protocol: TCP
+        - name: metrics
+          containerPort: 3001
+          protocol: TCP
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: NODE_ENV
+        - name: GCP_PROJECT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: GCP_PROJECT_ID
+        - name: GCP_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: GCP_REGION
+        - name: PUBSUB_REQUEST_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: PUBSUB_REQUEST_TOPIC
+        - name: PUBSUB_RESPONSE_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: PUBSUB_RESPONSE_TOPIC
+        - name: PUBSUB_SUBSCRIPTION_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: PUBSUB_SUBSCRIPTION_NAME
+        - name: FIRESTORE_COLLECTION_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: FIRESTORE_COLLECTION_NAME
+        - name: VERTEX_AI_MODEL_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: VERTEX_AI_MODEL_NAME
+        - name: VERTEX_AI_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: VERTEX_AI_ENDPOINT
+        - name: WEBSOCKET_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: WEBSOCKET_PORT
+        - name: WEBSOCKET_CORS_ORIGIN
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: WEBSOCKET_CORS_ORIGIN
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: LOG_LEVEL
+        - name: REQUEST_TIMEOUT_MS
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: REQUEST_TIMEOUT_MS
+        - name: AGENT_REQUEST_TIMEOUT_MS
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-service-config
+              key: AGENT_REQUEST_TIMEOUT_MS
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: orchestrator-service-secrets
+              key: JWT_SECRET
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: temp
+          mountPath: /app/temp
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: temp
+        emptyDir: {}
+      nodeSelector:
+        cloud.google.com/gke-nodepool: orchestrator-pool
+      tolerations:
+      - key: "node-role.orchestrator"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator-service
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+spec:
+  type: ClusterIP
+  ports:
+  - name: websocket
+    port: 80
+    targetPort: 3001
+    protocol: TCP
+  - name: metrics
+    port: 3001
+    targetPort: 3001
+    protocol: TCP
+  selector:
+    app: orchestrator-service
+    component: backend
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orchestrator-service-hpa
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: orchestrator-service
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 2
+        periodSeconds: 15
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchestrator-service-network-policy
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+spec:
+  podSelector:
+    matchLabels:
+      app: orchestrator-service
+      component: backend
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic from API Gateway
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: api-gateway
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+          component: frontend
+    ports:
+    - protocol: TCP
+      port: 3001
+  # Allow traffic from other internal services
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: travel-concierge
+    - podSelector:
+        matchLabels:
+          app: travel-concierge
+          component: backend
+    ports:
+    - protocol: TCP
+      port: 3001
+  # Allow health checks from kubelet
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 3001
+  egress:
+  # Allow DNS queries
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow traffic to GCP APIs (Pub/Sub, Firestore, Vertex AI)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+  # Allow traffic to internal cluster services
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: travel-concierge
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+  # Allow traffic to monitoring services
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orchestrator-service-pdb
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: orchestrator-service
+      component: backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator-service-metrics
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    component: backend
+    environment: production
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3001"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 3001
+    targetPort: 3001
+    protocol: TCP
+  selector:
+    app: orchestrator-service
+    component: backend
+---
+# Pod Security Standards
+apiVersion: v1
+kind: PodSecurityPolicy
+metadata:
+  name: orchestrator-service-psp
+  namespace: travel-concierge
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+  - ALL
+  volumes:
+  - 'configMap'
+  - 'emptyDir'
+  - 'projected'
+  - 'secret'
+  - 'downwardAPI'
+  - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+    - min: 1
+      max: 65535
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+    - min: 1
+      max: 65535
+  readOnlyRootFilesystem: true 

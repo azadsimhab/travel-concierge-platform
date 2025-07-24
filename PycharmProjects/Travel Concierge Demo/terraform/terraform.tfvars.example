@@ -1,0 +1,89 @@
+# terraform/terraform.tfvars.example
+# Copy this file to terraform.tfvars and update with your actual values
+
+# Required Variables
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+env        = "dev"
+
+# Vertex AI Gemini Configuration
+gemini_model_name         = "gemini-2-0-ultra"
+gemini_model_display_name = "Gemini 2.0 Ultra"
+gemini_endpoint_name      = "gemini-ultra-endpoint"
+gemini_endpoint_display_name = "Gemini 2.0 Ultra Endpoint"
+gemini_machine_type       = "n1-standard-4"
+gemini_min_replicas       = 1
+gemini_max_replicas       = 10
+
+# GCS Bucket Configuration
+ai_assets_bucket_name = "travel-concierge-ai-assets-12345"
+embeddings_bucket_name = "travel-concierge-embeddings-12345"
+force_destroy_bucket   = false
+
+# Matching Engine Configuration
+matching_engine_index_name         = "travel-embeddings-index"
+matching_engine_index_display_name = "Travel Embeddings Index"
+matching_engine_endpoint_name      = "travel-embeddings-endpoint"
+matching_engine_endpoint_display_name = "Travel Embeddings Endpoint"
+matching_engine_machine_type       = "n1-standard-4"
+matching_engine_min_replicas       = 1
+matching_engine_max_replicas       = 10
+embedding_dimensions               = 768
+approximate_neighbors_count        = 100
+leaf_node_embedding_count          = 500
+leaf_nodes_to_search_percent       = 10
+
+# IAM Configuration
+ai_service_account_name = "ai-features-sa"
+
+# Cloud Vision API Configuration
+enable_vision_api_quota_increase = false
+
+# Encryption Configuration
+enable_ai_encryption    = false
+ai_keyring_name         = "ai-encryption-keyring"
+ai_encryption_key_name  = "ai-encryption-key"
+
+# Monitoring and Logging Configuration
+ai_monitoring_service_id = "ai-features-monitoring"
+ai_logging_sink_name     = "ai-features-logs"
+ai_logging_topic_name    = "ai-features-logs"
+
+# Tags and Labels
+common_labels = {
+  environment = "production"
+  managed_by  = "terraform"
+  module      = "ai-features"
+  application = "travel-concierge"
+}
+
+# Network Configuration
+vpc_network = ""
+vpc_subnet  = ""
+
+# Security Configuration
+enable_private_service_connect = false
+enable_vpc_peering            = false
+
+# Cost Optimization
+enable_autoscaling           = true
+enable_preemptible_instances = false
+
+# Backup and Recovery
+enable_backup         = false
+backup_retention_days = 30
+
+# Compliance and Security
+enable_audit_logging        = true
+enable_data_encryption      = true
+enable_customer_managed_keys = false
+
+# Performance Configuration
+enable_gpu_acceleration = false
+gpu_type               = "nvidia-tesla-t4"
+gpu_count              = 1
+
+# Maintenance Configuration
+maintenance_window_start  = "02:00"
+maintenance_window_end    = "06:00"
+maintenance_window_timezone = "UTC" 

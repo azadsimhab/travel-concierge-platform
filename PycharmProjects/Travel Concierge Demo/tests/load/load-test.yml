@@ -1,0 +1,337 @@
+config:
+  target: 'https://travel-concierge.com'
+  phases:
+    # Warm-up phase
+    - duration: 60
+      arrivalRate: 1
+      name: "Warm-up"
+    
+    # Ramp-up phase
+    - duration: 300
+      arrivalRate: 5
+      rampTo: 50
+      name: "Ramp-up"
+    
+    # Sustained load phase
+    - duration: 600
+      arrivalRate: 50
+      name: "Sustained load"
+    
+    # Peak load phase
+    - duration: 300
+      arrivalRate: 50
+      rampTo: 100
+      name: "Peak load"
+    
+    # Cool-down phase
+    - duration: 120
+      arrivalRate: 100
+      rampTo: 0
+      name: "Cool-down"
+  
+  # Global variables
+  variables:
+    baseUrl: 'https://travel-concierge.com'
+    testUser:
+      email: 'loadtest@example.com'
+      password: 'LoadTest123!'
+  
+  # HTTP settings
+  http:
+    timeout: 30
+    pool: 10
+  
+  # Plugins
+  plugins:
+    metrics-by-endpoint: {}
+    expect: {}
+  
+  # Processor for authentication
+  processor: './auth-processor.js'
+
+# Test scenarios
+scenarios:
+  # Authentication flow
+  - name: "Authentication Flow"
+    weight: 20
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "{{ testUser.email }}"
+            password: "{{ testUser.password }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+          expect:
+            - statusCode: 200
+            - hasProperty: "token"
+      
+      - get:
+          url: "/api/auth/profile"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+
+  # Chat interface
+  - name: "Chat Interface"
+    weight: 30
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "{{ testUser.email }}"
+            password: "{{ testUser.password }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+      
+      - post:
+          url: "/api/chat/send"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            message: "I want to plan a trip to Paris"
+            sessionId: "{{ $randomString() }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "response"
+      
+      - think: 2
+      
+      - post:
+          url: "/api/chat/send"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            message: "What is the best time to visit?"
+            sessionId: "{{ sessionId }}"
+          expect:
+            - statusCode: 200
+
+  # Trip planning
+  - name: "Trip Planning"
+    weight: 25
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "{{ testUser.email }}"
+            password: "{{ testUser.password }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+      
+      - post:
+          url: "/api/trip-planning"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            destination: "Paris, France"
+            dates:
+              start: "2024-06-01"
+              end: "2024-06-07"
+            budget: 5000
+            travelers:
+              count: 2
+              type: "couple"
+            interests: ["culture", "food", "art"]
+          expect:
+            - statusCode: 200
+            - hasProperty: "itinerary"
+            - hasProperty: "accommodations"
+            - hasProperty: "transportation"
+      
+      - think: 3
+      
+      - get:
+          url: "/api/trip-planning/history"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+
+  # Image search
+  - name: "Image Search"
+    weight: 15
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "{{ testUser.email }}"
+            password: "{{ testUser.password }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+      
+      - post:
+          url: "/api/image-search"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          multipart:
+            - name: "image"
+              file: "./test-images/beach.jpg"
+              contentType: "image/jpeg"
+          json:
+            searchType: "destination"
+            preferences:
+              budget: 3000
+              travelers: 2
+          expect:
+            - statusCode: 200
+            - hasProperty: "destinations"
+            - hasProperty: "recommendations"
+
+  # Dashboard and profile
+  - name: "Dashboard and Profile"
+    weight: 10
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "{{ testUser.email }}"
+            password: "{{ testUser.password }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+      
+      - get:
+          url: "/api/dashboard"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "recentTrips"
+            - hasProperty: "quickActions"
+      
+      - get:
+          url: "/api/profile"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          expect:
+            - statusCode: 200
+            - hasProperty: "user"
+            - hasProperty: "preferences"
+
+# WebSocket testing scenarios
+  - name: "WebSocket Chat"
+    weight: 10
+    engine: "ws"
+    flow:
+      - connect:
+          url: "wss://travel-concierge.com/ws"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+      
+      - send:
+          payload: |
+            {
+              "type": "message",
+              "content": "Hello, I need help planning a trip",
+              "sessionId": "{{ $randomString() }}"
+            }
+      
+      - think: 5
+      
+      - send:
+          payload: |
+            {
+              "type": "message",
+              "content": "What are the best destinations for summer?",
+              "sessionId": "{{ sessionId }}"
+            }
+      
+      - think: 3
+      
+      - close: {}
+
+# Stress testing scenarios
+  - name: "Stress Test - High Concurrency"
+    weight: 5
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email: "{{ testUser.email }}"
+            password: "{{ testUser.password }}"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+      
+      - function: "stressTest"
+      
+      - post:
+          url: "/api/trip-planning"
+          headers:
+            Authorization: "Bearer {{ authToken }}"
+          json:
+            destination: "Tokyo, Japan"
+            dates:
+              start: "2024-07-01"
+              end: "2024-07-10"
+            budget: 8000
+            travelers:
+              count: 4
+              type: "family"
+            interests: ["culture", "food", "adventure"]
+          expect:
+            - statusCode: 200
+
+# Performance monitoring
+  - name: "Performance Monitoring"
+    weight: 5
+    flow:
+      - get:
+          url: "/health"
+          expect:
+            - statusCode: 200
+            - hasProperty: "status"
+            - hasProperty: "services"
+      
+      - get:
+          url: "/metrics"
+          expect:
+            - statusCode: 200
+            - hasProperty: "requests"
+            - hasProperty: "responseTime"
+            - hasProperty: "errorRate"
+
+# Custom functions
+functions:
+  stressTest: |
+    function stressTest(requestParams, context, events, done) {
+      // Simulate high load by making multiple concurrent requests
+      const promises = [];
+      
+      for (let i = 0; i < 5; i++) {
+        promises.push(
+          context.http.request({
+            method: 'GET',
+            url: context.vars.baseUrl + '/api/dashboard',
+            headers: {
+              'Authorization': 'Bearer ' + context.vars.authToken
+            }
+          })
+        );
+      }
+      
+      Promise.all(promises)
+        .then(() => done())
+        .catch(done);
+    }
+
+# Custom processor for authentication
+processor: |
+  function authProcessor(requestParams, context, events, done) {
+    // Generate unique test user credentials
+    const timestamp = Date.now();
+    const randomId = Math.floor(Math.random() * 1000);
+    
+    context.vars.testUser = {
+      email: `loadtest-${timestamp}-${randomId}@example.com`,
+      password: 'LoadTest123!'
+    };
+    
+    return done();
+  } 

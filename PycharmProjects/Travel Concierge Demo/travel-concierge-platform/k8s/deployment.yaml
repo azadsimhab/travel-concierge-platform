@@ -1,0 +1,283 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: travel-concierge
+  labels:
+    name: travel-concierge
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orchestrator-service-account
+  namespace: travel-concierge
+  annotations:
+    iam.gke.io/gcp-service-account: orchestrator-service@travel-concierge-prod.iam.gserviceaccount.com
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: orchestrator-service-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: orchestrator-service-role
+subjects:
+- kind: ServiceAccount
+  name: orchestrator-service-account
+  namespace: travel-concierge
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: orchestrator-service-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orchestrator-config
+  namespace: travel-concierge
+data:
+  NODE_ENV: "production"
+  PROJECT_ID: "travel-concierge-prod"
+  REGION: "us-central1"
+  LOG_LEVEL: "info"
+  API_VERSION: "v1"
+  CORS_ORIGIN: "https://travel-concierge.com"
+  RATE_LIMIT_WINDOW: "900000"
+  RATE_LIMIT_MAX: "100"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orchestrator-secrets
+  namespace: travel-concierge
+type: Opaque
+data:
+  JWT_SECRET: "base64-encoded-jwt-secret"
+  GOOGLE_APPLICATION_CREDENTIALS: "base64-encoded-service-account-key"
+  DATABASE_URL: "base64-encoded-database-url"
+  REDIS_URL: "base64-encoded-redis-url"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator-service
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: orchestrator-service
+  template:
+    metadata:
+      labels:
+        app: orchestrator-service
+        version: v1
+    spec:
+      serviceAccountName: orchestrator-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+      - name: orchestrator-service
+        image: gcr.io/travel-concierge-prod/orchestrator-service:latest
+        ports:
+        - containerPort: 3001
+          name: http
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: NODE_ENV
+        - name: PROJECT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: PROJECT_ID
+        - name: REGION
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: REGION
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: orchestrator-config
+              key: LOG_LEVEL
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: orchestrator-secrets
+              key: JWT_SECRET
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          valueFrom:
+            secretKeyRef:
+              name: orchestrator-secrets
+              key: GOOGLE_APPLICATION_CREDENTIALS
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator-service
+  namespace: travel-concierge
+  labels:
+    app: orchestrator-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 3001
+    protocol: TCP
+    name: http
+  selector:
+    app: orchestrator-service
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: orchestrator-ingress
+  namespace: travel-concierge
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "travel-concierge-api-ip"
+    networking.gke.io/managed-certificates: "travel-concierge-api-cert"
+    networking.gke.io/v1beta1.FrontendConfig: "travel-concierge-frontend-config"
+spec:
+  rules:
+  - host: api.travel-concierge.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: orchestrator-service
+            port:
+              number: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orchestrator-hpa
+  namespace: travel-concierge
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: orchestrator-service
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: orchestrator-pdb
+  namespace: travel-concierge
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: orchestrator-service
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchestrator-network-policy
+  namespace: travel-concierge
+spec:
+  podSelector:
+    matchLabels:
+      app: orchestrator-service
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: travel-concierge
+    ports:
+    - protocol: TCP
+      port: 3001
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 53
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80 
