@@ -1,10 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import { TravelGlobeDemo } from '@/components/ui/travel-globe-demo'
+import { ExpandableChatDemo } from '@/components/ui/expandable-chat-demo'
 
 export default function HomePage() {
   const [activeCategory, setActiveCategory] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [chatRef, setChatRef] = useState<{ openChat: () => void } | null>(null)
+
+  const handleOpenChat = () => {
+    if (chatRef?.openChat) {
+      chatRef.openChat()
+    }
+  }
 
   return (
     <div>
@@ -24,8 +33,11 @@ export default function HomePage() {
           </nav>
           
           <div className="header-actions">
-            <button className="btn-primary">
-              💬 AI Assistant
+            <button 
+              onClick={handleOpenChat}
+              className="btn-primary"
+            >
+              🧠 Personalized AI Chat
             </button>
             <span style={{ color: 'white' }}>INR</span>
             <button className="btn-secondary">Sign in</button>
@@ -67,17 +79,29 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Search Bar */}
+          {/* AI Assistant Input */}
           <div className="search-container">
             <div className="search-bar">
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Places to go, things to do, hotels..."
+                placeholder="Ask me anything about travel... 'I want to go to Goa on 26th for 10 days'"
                 className="search-input"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleOpenChat()
+                  }
+                }}
               />
-              <button className="search-btn">Search</button>
+              <button 
+                onClick={handleOpenChat}
+                className="ai-assistant-btn"
+                title="Talk to Personalized AI Assistant"
+              >
+                <span className="ai-icon">🧠</span>
+                <span>Chat</span>
+              </button>
             </div>
           </div>
         </div>
@@ -128,15 +152,16 @@ export default function HomePage() {
                 ))}
               </div>
 
-              <button className="btn-primary">Start Planning →</button>
+              <button 
+                onClick={handleOpenChat}
+                className="btn-primary"
+              >
+                Start Planning with AI →
+              </button>
             </div>
 
             <div className="features-visual">
-              <div style={{ fontSize: '80px', marginBottom: '24px' }}>🌍</div>
-              <h3 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '12px' }}>
-                Discover Amazing Places
-              </h3>
-              <p style={{ opacity: 0.8 }}>AI-curated travel experiences</p>
+              <TravelGlobeDemo />
             </div>
           </div>
         </div>
@@ -193,7 +218,12 @@ export default function HomePage() {
             Join millions of travelers who trust our AI-powered platform for their perfect journey
           </p>
           <div className="cta-actions">
-            <button className="btn-primary">Talk to AI Assistant</button>
+            <button 
+              onClick={handleOpenChat}
+              className="btn-primary"
+            >
+              Talk to Personalized AI
+            </button>
             <button className="btn-secondary">Browse Destinations</button>
           </div>
         </div>
@@ -241,6 +271,13 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
+
+      {/* Expandable Chat Widget */}
+      <ExpandableChatDemo 
+        onRef={(ref) => setChatRef(ref)}
+        initialMessage={searchQuery}
+      />
+
     </div>
   )
 }

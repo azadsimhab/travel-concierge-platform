@@ -1,0 +1,47 @@
+{
+  "user_id": "test-personalization-user",
+  "name": "John Doe",
+  "age_group": "25-35",
+  "personality_type": "PersonalityType.ADVENTUROUS",
+  "communication_style": "CommunicationStyle.ENTHUSIASTIC",
+  "budget_range": "medium",
+  "interests": [
+    "hiking",
+    "photography",
+    "local_food",
+    "adventure",
+    "nature"
+  ],
+  "travel_history": [],
+  "preferences": {},
+  "conversation_history": [
+    {
+      "timestamp": "2025-07-26T06:13:45.310861",
+      "message": "I want an adventure trip to mountains",
+      "type": "user"
+    },
+    {
+      "timestamp": "2025-07-26T06:14:25.239431",
+      "message": "Hey John Doe!  Get ready for an adrenaline rush because I've got some EPIC mountain adventure trips lined up for you!!!  Since you're into hiking, photography, amazing local food, and of course, THRILLING adventures in nature, I've crafted some perfect options just for you!\n\n**Option 1:  Trekking the Inca Trail to Machu Picchu (Peru)!**\n\n* **Thrill Level:**  High! This isn't your Sunday stroll \u2013 it's a challenging but incredibly rewarding trek through stunning Andean landscapes.  Prepare for breathtaking views and a serious sense of accomplishment!\n* **Photography Opportunities:**  Unbelievable!  Ancient ruins, lush cloud forests, and majestic mountain vistas will keep your camera clicking non-stop.\n* **Local Food:**  Peruvian cuisine is AMAZING!  Expect to savor delicious dishes along the trail and in Cusco, from hearty stews to exotic fruits.\n* **Timing:**  Classic treks are 4-5 days, best done during the dry season (May-September).\n* **Pricing:**  Medium range, around $1500-$2500 depending on the tour operator and level of comfort.  I can connect you with reputable operators offering various packages.\n* **Insider Tip:** Book well in advance! Permits are limited.  Consider hiring a porter to help carry your gear \u2013 it'll make the trek much more enjoyable!\n\n**Option 2:  White Water Rafting and Hiking in Nepal!**\n\n* **Thrill Level:**  EXTREME!  Nepal offers some of the best white water rafting in the world, followed by breathtaking hikes through the Himalayas.  Prepare for an unforgettable adventure!\n* **Photography Opportunities:**  Stunning Himalayan peaks, cascading waterfalls, and vibrant Nepali villages will provide endless photo ops.\n* **Local Food:**  Dal Bhat power!  Experience the delicious and hearty staple food of Nepal, alongside other regional specialties.\n* **Timing:**  Best during the spring (March-May) or autumn (September-November) for optimal weather.\n* **Pricing:**  Medium range, approximately $1200-$2000 for a combined rafting and hiking trip of about 7-10 days.  I can find packages that suit your preferences.\n* **Insider Tip:**  Learn a few basic Nepali phrases \u2013 the locals will appreciate it!\n\n\n**Option 3:  Rock Climbing and Hiking in Yosemite National Park (USA)!**\n\n* **Thrill Level:**  High to Extreme (depending on the climbing routes you choose!).  Yosemite offers world-class rock climbing for all levels, as well as incredible hiking trails.\n* **Photography Opportunities:**  Iconic granite cliffs, giant sequoia trees, and breathtaking valley views \u2013 Yosemite is a photographer's paradise!\n* **Local Food:**  From casual cafes to upscale restaurants, Yosemite Valley offers diverse dining options.  Don't miss the chance to try some local craft beers!\n* **Timing:**  Spring (April-May) and Fall (September-October) offer pleasant temperatures and fewer crowds.\n* **Pricing:**  Medium range, around $1000-$1500 for a week-long trip, including accommodation, park fees, and some guided activities.  I can help you find affordable lodging options.\n* **Insider Tip:**  Make reservations for lodging and popular activities well in advance, especially during peak season!\n\n\n**Option 4: Mountaineering in the Dolomites (Italy)!**\n\n* **Thrill Level:**  Moderate to High, depending on your chosen route. The Dolomites offer stunning scenery and various trails for all levels of experience.\n* **Photography Opportunities:**  Picturesque villages, dramatic peaks, and vibrant alpine meadows will make for stunning photos.\n* **Local Food:**  Enjoy traditional Italian cuisine with",
+      "type": "ai",
+      "personalization_used": {
+        "updated_interests": [
+          "hiking",
+          "photography",
+          "local_food",
+          "adventure",
+          "nature"
+        ],
+        "budget_preference": "medium",
+        "communication_style": "enthusiastic"
+      }
+    }
+  ],
+  "last_interaction": "2025-07-26T06:14:25.239439",
+  "preferred_language": "en-US",
+  "voice_enabled": false,
+  "accessibility_needs": [],
+  "feedback_history": [],
+  "satisfaction_scores": [],
+  "learning_insights": {}
+}

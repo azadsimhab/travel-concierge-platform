@@ -1,9 +1,9 @@
 """
-AI Travel Concierge Platform - Updated Backend with Proper Agent System
-Fixes the chat responses to use the correct agent routing
+AI Travel Concierge Platform - Personalized AI with Gemini Integration
+Advanced personalized travel assistant with voice capabilities
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
@@ -15,6 +15,10 @@ from dotenv import load_dotenv
 import base64
 import logging
 
+# Import our personalized AI and voice systems
+from .personalized_ai import initialize_personalized_ai, get_personalized_ai, PersonalityType, CommunicationStyle
+from .voice_system import initialize_voice_system, get_voice_system, VoicePersonality, VoiceGender, VoiceLanguage
+
 # Load environment variables
 load_dotenv()
 
@@ -24,9 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="AI Travel Concierge Platform",
-    description="Your intelligent travel companion powered by advanced AI",
-    version="1.0.0",
+    title="Personalized AI Travel Concierge",
+    description="Your intelligent travel companion with Gemini AI and voice capabilities - providing unique experiences for each user",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -34,7 +38,7 @@ app = FastAPI(
 # CORS configuration for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3007", "http://localhost:3001", "*"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3005", "http://localhost:3007", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,16 +49,46 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     session_id: str
+    user_id: str
     context: Optional[Dict[str, Any]] = {}
-    user_id: Optional[str] = None
+    voice_input: Optional[bool] = False
+    preferred_language: Optional[str] = "en-US"
 
-class ChatResponse(BaseModel):
+class PersonalizedChatResponse(BaseModel):
     response: str
     session_id: str
+    user_id: str
     agent_used: str
     confidence: float
     suggestions: List[str] = []
     booking_options: List[Dict[str, Any]] = []
+    personalization_score: float
+    user_insights: Dict[str, Any]
+    voice_response_available: bool = False
+    voice_audio_data: Optional[str] = None
+
+class VoiceRequest(BaseModel):
+    audio_data: str  # Base64 encoded audio
+    session_id: str
+    user_id: str
+    language: Optional[str] = "en-US"
+    
+class UserProfileUpdate(BaseModel):
+    user_id: str
+    name: Optional[str] = None
+    age_group: Optional[str] = None
+    personality_type: Optional[str] = None
+    communication_style: Optional[str] = None
+    budget_range: Optional[str] = None
+    interests: Optional[List[str]] = None
+    preferred_language: Optional[str] = None
+    voice_enabled: Optional[bool] = None
+
+class FeedbackRequest(BaseModel):
+    user_id: str
+    feedback_type: str  # "rating", "thumbs", "detailed", "correction"
+    feedback_data: Dict[str, Any]
+    response_id: Optional[str] = None
 
 class ImageSearchRequest(BaseModel):
     image_data: str
@@ -78,15 +112,25 @@ class TravelAgentOrchestrator:
             "planning": self.planning_agent,
             "booking": self.booking_agent,
             "trip_monitor": self.trip_monitor_agent,
-            "day_of": self.day_of_agent
+            "day_of": self.day_of_agent,
+            "multi_agent": self.multi_agent_handler
         }
         
     def detect_intent(self, message: str) -> str:
         """Detect user intent and route to appropriate agent"""
         message_lower = message.lower()
         
+        # Complex query detection - check for location + dates + duration
+        has_location = any(location in message_lower for location in ["goa", "kerala", "rajasthan", "himachal", "kashmir", "delhi", "mumbai", "bangalore"])
+        has_dates = any(date_word in message_lower for date_word in ["26th", "27th", "28th", "29th", "30th", "31st", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "today", "tomorrow", "next week", "next month"])
+        has_duration = any(duration in message_lower for duration in ["days", "day", "weeks", "week", "months", "month", "10 days", "7 days", "5 days", "3 days"])
+        
+        # If it's a complex travel query, trigger multi-agent response
+        if has_location and (has_dates or has_duration):
+            return "multi_agent"
+        
         # Place agent - location specific
-        if any(location in message_lower for location in ["goa", "kerala", "rajasthan", "himachal", "kashmir", "delhi", "mumbai", "bangalore"]):
+        elif has_location:
             return "place"
         
         # Planning agent - itinerary and scheduling
@@ -251,12 +295,104 @@ class TravelAgentOrchestrator:
             "confidence": 0.98
         }
     
+    def multi_agent_handler(self, message: str) -> Dict[str, Any]:
+        """Handle complex queries that require multiple agents"""
+        message_lower = message.lower()
+        
+        # Extract details from the message
+        destination = "Goa" if "goa" in message_lower else "Your destination"
+        duration = "10 days" if "10 days" in message_lower else "your stay"
+        date = "26th" if "26th" in message_lower else "your travel date"
+        
+        # Combine insights from multiple agents
+        place_info = self.place_agent(message)
+        planning_info = self.planning_agent(message)
+        booking_info = self.booking_agent(message)
+        
+        # Create comprehensive response
+        comprehensive_response = f"""🌴 Fantastic choice! {destination} on the {date} for {duration} is perfect - here's your complete travel plan:
+
+🏖️ **Destination Insights (Place Agent):**
+{place_info['response']}
+
+📅 **Trip Planning (Planning Agent):**
+I've crafted a perfect {duration} itinerary covering the best of {destination}:
+• Days 1-3: North Goa beaches, nightlife, and Portuguese heritage
+• Days 4-6: South Goa relaxation, spice plantations, and local culture  
+• Days 7-10: Adventure activities, local markets, and hidden gems
+
+🎫 **Booking Options (Booking Agent):**
+Found great deals for your {duration} trip:"""
+        
+        # Enhanced booking options for comprehensive trips
+        enhanced_booking_options = [
+            {
+                "type": "flight",
+                "option": "Air India Express",
+                "price": "₹8,500",
+                "details": f"Delhi to Goa on {date}, return after {duration}",
+                "availability": "Available - Book now for best prices!"
+            },
+            {
+                "type": "hotel",
+                "option": "Taj Exotica Resort & Spa",
+                "price": "₹12,000/night",
+                "details": f"5-star beachfront luxury for {duration}",
+                "availability": "Few rooms left for {date}"
+            },
+            {
+                "type": "hotel", 
+                "option": "Alila Diwa Resort",
+                "price": "₹8,000/night",
+                "details": f"4-star resort with spa for {duration}",
+                "availability": "Available with pool view"
+            },
+            {
+                "type": "activity",
+                "option": "Complete Goa Experience Package",
+                "price": "₹15,000",
+                "details": f"Spice plantation, dolphin cruise, heritage tours for {duration}",
+                "availability": "Available - includes transport"
+            },
+            {
+                "type": "transport",
+                "option": "Rent a Scooter",
+                "price": "₹500/day",
+                "details": f"Explore Goa freely for {duration}",
+                "availability": "Available - helmets included"
+            }
+        ]
+        
+        # Combined suggestions from all agents
+        comprehensive_suggestions = [
+            "See complete day-by-day itinerary",
+            "Compare hotel packages",
+            "Book flights + hotel combo",
+            "Add adventure activities",
+            "Get local restaurant recommendations",
+            "Check weather forecast",
+            "Download offline maps"
+        ]
+        
+        return {
+            "response": comprehensive_response,
+            "suggestions": comprehensive_suggestions,
+            "confidence": 0.96,
+            "booking_options": enhanced_booking_options
+        }
+    
     def process_message(self, message: str) -> Dict[str, Any]:
         """Process message through appropriate agent"""
         intent = self.detect_intent(message)
         agent_func = self.agents[intent]
         result = agent_func(message)
-        result["agent"] = intent.title()
+        
+        # Set agent name for display
+        if intent == "multi_agent":
+            result["agent"] = "Multi-Agent System"
+        else:
+            result["agent"] = intent.title()
+        
         return result
 
 # Initialize the orchestrator
@@ -297,7 +433,7 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-@app.post("/api/chat", response_model=ChatResponse)
+@app.post("/api/chat")
 async def chat(request: ChatRequest):
     try:
         # Get session
@@ -314,18 +450,254 @@ async def chat(request: ChatRequest):
             "timestamp": datetime.now().isoformat()
         })
         
-        return ChatResponse(
-            response=result["response"],
-            session_id=request.session_id,
-            agent_used=result["agent"],
-            confidence=result["confidence"],
-            suggestions=result["suggestions"],
-            booking_options=result.get("booking_options", [])
-        )
+        return {
+            "response": result["response"],
+            "session_id": request.session_id,
+            "agent_used": result["agent"],
+            "confidence": result["confidence"],
+            "suggestions": result["suggestions"],
+            "booking_options": result.get("booking_options", [])
+        }
         
     except Exception as e:
         logger.error(f"Chat error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
+
+# --- PERSONALIZED AI ENDPOINTS ---
+
+@app.post("/api/personalized-chat")
+async def personalized_chat(request: ChatRequest):
+    """Enhanced chat with personalized AI using Gemini"""
+    try:
+        # Validate required fields
+        if not request.message or not request.user_id or not request.session_id:
+            raise HTTPException(status_code=400, detail="message, user_id, and session_id are required")
+        
+        # Try to use personalized AI first
+        personalized_ai = get_personalized_ai()
+        if personalized_ai:
+            result = await personalized_ai.generate_personalized_response(
+                message=request.message,
+                user_id=request.user_id,
+                session_id=request.session_id,
+                voice_input=request.voice_input or False
+            )
+            
+            # Generate voice response if user has voice enabled
+            voice_audio_data = None
+            if result.get("voice_response_available"):
+                voice_system = get_voice_system()
+                if voice_system:
+                    voice_result = await voice_system.text_to_speech(
+                        result["response"],
+                        voice_personality=VoicePersonality.FRIENDLY,
+                        language=VoiceLanguage(request.preferred_language or "en-US")
+                    )
+                    voice_audio_data = voice_result.get("audio_data")
+            
+            return {
+                "response": result["response"],
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "agent_used": result["agent_used"],
+                "confidence": result["confidence"],
+                "suggestions": result["suggestions"],
+                "booking_options": result["booking_options"],
+                "personalization_score": result["personalization_score"],
+                "user_insights": result["user_insights"],
+                "voice_response_available": result["voice_response_available"],
+                "voice_audio_data": voice_audio_data
+            }
+        else:
+            # Fallback to traditional system
+            session = get_session(request.session_id)
+            result = orchestrator.process_message(request.message)
+            
+            return {
+                "response": result["response"],
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "agent_used": result["agent"],
+                "confidence": result["confidence"],
+                "suggestions": result["suggestions"],
+                "booking_options": result.get("booking_options", []),
+                "personalization_score": 0.3,  # Default low score
+                "user_insights": {"fallback_mode": True},
+                "voice_response_available": False,
+                "voice_audio_data": None
+            }
+            
+    except Exception as e:
+        logger.error(f"Personalized chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Personalized chat failed: {str(e)}")
+
+@app.post("/api/voice-chat")
+async def voice_chat(request: VoiceRequest):
+    """Process voice input and return personalized voice response"""
+    try:
+        voice_system = get_voice_system()
+        if not voice_system:
+            raise HTTPException(status_code=503, detail="Voice system not available")
+        
+        # Validate and convert voice to text
+        try:
+            # Add padding if needed for base64 decoding
+            audio_data_str = request.audio_data
+            # Remove data URL prefix if present
+            if audio_data_str.startswith('data:'):
+                audio_data_str = audio_data_str.split(',')[1]
+            
+            # Add padding if needed
+            missing_padding = len(audio_data_str) % 4
+            if missing_padding:
+                audio_data_str += '=' * (4 - missing_padding)
+            
+            audio_data = base64.b64decode(audio_data_str)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid audio data format: {str(e)}")
+        
+        voice_analysis = await voice_system.analyze_voice_input(audio_data)
+        
+        if voice_analysis.get("error"):
+            raise HTTPException(status_code=400, detail=voice_analysis["error"])
+        
+        # Process the text with personalized AI
+        personalized_ai = get_personalized_ai()
+        if personalized_ai:
+            result = await personalized_ai.generate_personalized_response(
+                message=voice_analysis["text"],
+                user_id=request.user_id,
+                session_id=request.session_id,
+                voice_input=True
+            )
+            
+            # Generate voice response
+            voice_personality = voice_analysis.get("suggested_personality", VoicePersonality.FRIENDLY)
+            voice_result = await voice_system.text_to_speech(
+                result["response"],
+                voice_personality=voice_personality,
+                language=VoiceLanguage(request.language)
+            )
+            
+            return {
+                "text_input": voice_analysis["text"],
+                "text_response": result["response"],
+                "voice_audio_data": voice_result.get("audio_data"),
+                "audio_format": voice_result.get("audio_format"),
+                "voice_personality": voice_personality.value,
+                "personalization_score": result["personalization_score"],
+                "suggestions": result["suggestions"],
+                "booking_options": result["booking_options"],
+                "emotion_detected": voice_analysis.get("emotion", {}),
+                "session_id": request.session_id
+            }
+        else:
+            raise HTTPException(status_code=503, detail="Personalized AI not available")
+            
+    except Exception as e:
+        logger.error(f"Voice chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Voice chat failed: {str(e)}")
+
+@app.post("/api/user-profile")
+async def update_user_profile(request: UserProfileUpdate):
+    """Update user profile for personalization"""
+    try:
+        personalized_ai = get_personalized_ai()
+        if not personalized_ai:
+            raise HTTPException(status_code=503, detail="Personalized AI not available")
+        
+        # Convert request to dict, excluding None values
+        updates = {k: v for k, v in request.dict().items() if v is not None and k != 'user_id'}
+        
+        profile = await personalized_ai.update_user_profile(request.user_id, updates)
+        
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "profile_updated": True,
+            "personalization_score": personalized_ai.calculate_personalization_score(profile),
+            "personality_type": profile.personality_type.value,
+            "communication_style": profile.communication_style.value,
+            "interests": profile.interests,
+            "message": "User profile updated successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Profile update error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Profile update failed: {str(e)}")
+
+@app.get("/api/user-stats/{user_id}")
+async def get_user_stats(user_id: str):
+    """Get comprehensive user statistics and insights"""
+    try:
+        personalized_ai = get_personalized_ai()
+        if not personalized_ai:
+            raise HTTPException(status_code=503, detail="Personalized AI not available")
+        
+        stats = personalized_ai.get_user_stats(user_id)
+        
+        if "error" in stats:
+            raise HTTPException(status_code=404, detail=stats["error"])
+        
+        return stats
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"User stats error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user stats: {str(e)}")
+
+@app.post("/api/user-feedback")
+async def submit_user_feedback(request: FeedbackRequest):
+    """Submit user feedback to improve personalization"""
+    try:
+        personalized_ai = get_personalized_ai()
+        if not personalized_ai:
+            raise HTTPException(status_code=503, detail="Personalized AI not available")
+        
+        result = await personalized_ai.process_user_feedback(
+            user_id=request.user_id,
+            feedback_type=request.feedback_type,
+            feedback_data=request.feedback_data,
+            response_id=request.response_id
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Feedback processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process feedback: {str(e)}")
+
+@app.get("/api/voice-options")
+async def get_voice_options():
+    """Get available voice options and languages"""
+    try:
+        voice_system = get_voice_system()
+        if not voice_system:
+            return {
+                "available": False,
+                "message": "Voice system not available"
+            }
+        
+        return {
+            "available": True,
+            "languages": voice_system.get_supported_languages(),
+            "personalities": voice_system.get_voice_personalities(),
+            "genders": [
+                {"id": "female", "name": "Female"},
+                {"id": "male", "name": "Male"},
+                {"id": "neutral", "name": "Neutral"}
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Voice options error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get voice options: {str(e)}")
 
 @app.post("/api/image-search")
 async def image_search(request: ImageSearchRequest):
@@ -448,10 +820,32 @@ async def get_session_info(session_id: str):
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("🚀 AI Travel Concierge Platform starting up...")
-    logger.info("✅ All agents initialized successfully")
+    logger.info("🚀 Personalized AI Travel Concierge Platform starting up...")
+    
+    # Initialize Gemini API key
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        logger.warning("⚠️ GEMINI_API_KEY not found. Using fallback agent system.")
+    else:
+        try:
+            # Initialize personalized AI system
+            initialize_personalized_ai(gemini_api_key)
+            logger.info("✅ Personalized Gemini AI system initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Gemini AI: {e}")
+    
+    # Initialize voice system
+    google_cloud_credentials = os.getenv("GOOGLE_CLOUD_CREDENTIALS_PATH")
+    try:
+        initialize_voice_system(google_cloud_credentials)
+        logger.info("✅ Voice system initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Voice system initialization failed: {e}")
+    
+    logger.info("✅ All traditional agents initialized successfully")
     logger.info("✅ Session manager initialized")
     logger.info("✅ API endpoints ready")
+    logger.info("🌟 Personalized AI Travel Concierge is ready to serve unique experiences!")
 
 if __name__ == "__main__":
     import uvicorn
