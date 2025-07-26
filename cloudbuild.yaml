@@ -1,0 +1,496 @@
+steps:
+  # =============================================================================
+  # SECURITY SCANNING
+  # =============================================================================
+  
+  # Run Trivy vulnerability scanner
+  - name: 'aquasec/trivy'
+    args:
+      - 'image'
+      - '--severity'
+      - 'HIGH,CRITICAL'
+      - '--format'
+      - 'json'
+      - '--output'
+      - '/workspace/trivy-scan.json'
+      - 'gcr.io/$PROJECT_ID/orchestrator-service:$COMMIT_SHA'
+    id: 'vulnerability-scan'
+    waitFor: ['-']
+  
+  # Run OWASP ZAP security scan
+  - name: 'owasp/zap2docker-stable'
+    args:
+      - 'zap-baseline.py'
+      - '-t'
+      - 'https://travel-concierge.com'
+      - '-J'
+      - '/workspace/zap-scan.json'
+    id: 'api-security-scan'
+    waitFor: ['-']
+  
+  # Run SonarQube code quality analysis
+  - name: 'sonarqube:latest'
+    args:
+      - '-Dsonar.projectKey=travel-concierge'
+      - '-Dsonar.sources=src'
+      - '-Dsonar.host.url=$_SONAR_HOST'
+      - '-Dsonar.login=$_SONAR_TOKEN'
+    id: 'code-quality-scan'
+    waitFor: ['-']
+  
+  # =============================================================================
+  # COMPLIANCE CHECKS
+  # =============================================================================
+  
+  # Run PCI DSS compliance check
+  - name: 'gcr.io/$PROJECT_ID/compliance-checker'
+    args:
+      - '--framework=pci-dss'
+      - '--output=/workspace/pci-compliance.json'
+    id: 'pci-compliance'
+    waitFor: ['-']
+  
+  # Run GDPR compliance check
+  - name: 'gcr.io/$PROJECT_ID/compliance-checker'
+    args:
+      - '--framework=gdpr'
+      - '--output=/workspace/gdpr-compliance.json'
+    id: 'gdpr-compliance'
+    waitFor: ['-']
+  
+  # Run CCPA compliance check
+  - name: 'gcr.io/$PROJECT_ID/compliance-checker'
+    args:
+      - '--framework=ccpa'
+      - '--output=/workspace/ccpa-compliance.json'
+    id: 'ccpa-compliance'
+    waitFor: ['-']
+  
+  # =============================================================================
+  # BUILD STAGES
+  # =============================================================================
+  
+  # Build Orchestrator service
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/orchestrator-service:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/orchestrator-service:latest'
+      - '-f'
+      - 'src/orchestrator/Dockerfile'
+      - '--build-arg'
+      - 'NODE_ENV=production'
+      - '--build-arg'
+      - 'PROJECT_ID=$PROJECT_ID'
+      - '--build-arg'
+      - 'REGION=$REGION'
+      - '.'
+    id: 'build-orchestrator'
+    waitFor: ['vulnerability-scan', 'api-security-scan', 'code-quality-scan']
+  
+  # Build Image Search Agent
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/image-search-agent:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/image-search-agent:latest'
+      - '-f'
+      - 'src/agents/image-search-agent/Dockerfile'
+      - '--build-arg'
+      - 'NODE_ENV=production'
+      - '--build-arg'
+      - 'PROJECT_ID=$PROJECT_ID'
+      - '--build-arg'
+      - 'REGION=$REGION'
+      - '.'
+    id: 'build-image-search-agent'
+    waitFor: ['vulnerability-scan', 'api-security-scan', 'code-quality-scan']
+  
+  # Build Trip Planning Agent
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/trip-planning-agent:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/trip-planning-agent:latest'
+      - '-f'
+      - 'src/agents/trip-planning-agent/Dockerfile'
+      - '--build-arg'
+      - 'NODE_ENV=production'
+      - '--build-arg'
+      - 'PROJECT_ID=$PROJECT_ID'
+      - '--build-arg'
+      - 'REGION=$REGION'
+      - '.'
+    id: 'build-trip-planning-agent'
+    waitFor: ['vulnerability-scan', 'api-security-scan', 'code-quality-scan']
+  
+  # Build Frontend
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/frontend:latest'
+      - '-f'
+      - 'frontend/Dockerfile'
+      - '--build-arg'
+      - 'NODE_ENV=production'
+      - '--build-arg'
+      - 'REACT_APP_API_URL=https://api.travel-concierge.com'
+      - '--build-arg'
+      - 'REACT_APP_WS_URL=wss://ws.travel-concierge.com'
+      - '.'
+    id: 'build-frontend'
+    waitFor: ['vulnerability-scan', 'api-security-scan', 'code-quality-scan']
+  
+  # =============================================================================
+  # PUSH IMAGES
+  # =============================================================================
+  
+  # Push Orchestrator service
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/orchestrator-service:$COMMIT_SHA']
+    id: 'push-orchestrator'
+    waitFor: ['build-orchestrator']
+  
+  # Push Image Search Agent
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/image-search-agent:$COMMIT_SHA']
+    id: 'push-image-search-agent'
+    waitFor: ['build-image-search-agent']
+  
+  # Push Trip Planning Agent
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/trip-planning-agent:$COMMIT_SHA']
+    id: 'push-trip-planning-agent'
+    waitFor: ['build-trip-planning-agent']
+  
+  # Push Frontend
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA']
+    id: 'push-frontend'
+    waitFor: ['build-frontend']
+  
+  # =============================================================================
+  # DEPLOY TO KUBERNETES
+  # =============================================================================
+  
+  # Update Kubernetes manifests with new image tags
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'set'
+      - 'image'
+      - 'deployment/orchestrator-service'
+      - 'orchestrator-service=gcr.io/$PROJECT_ID/orchestrator-service:$COMMIT_SHA'
+      - '-n'
+      - 'travel-concierge'
+    id: 'update-orchestrator'
+    waitFor: ['push-orchestrator']
+  
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'set'
+      - 'image'
+      - 'deployment/image-search-agent'
+      - 'image-search-agent=gcr.io/$PROJECT_ID/image-search-agent:$COMMIT_SHA'
+      - '-n'
+      - 'travel-concierge'
+    id: 'update-image-search-agent'
+    waitFor: ['push-image-search-agent']
+  
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'set'
+      - 'image'
+      - 'deployment/trip-planning-agent'
+      - 'trip-planning-agent=gcr.io/$PROJECT_ID/trip-planning-agent:$COMMIT_SHA'
+      - '-n'
+      - 'travel-concierge'
+    id: 'update-trip-planning-agent'
+    waitFor: ['push-trip-planning-agent']
+  
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'set'
+      - 'image'
+      - 'deployment/frontend'
+      - 'frontend=gcr.io/$PROJECT_ID/frontend:$COMMIT_SHA'
+      - '-n'
+      - 'travel-concierge'
+    id: 'update-frontend'
+    waitFor: ['push-frontend']
+  
+  # =============================================================================
+  # WAIT FOR ROLLOUT
+  # =============================================================================
+  
+  # Wait for Orchestrator rollout
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'rollout'
+      - 'status'
+      - 'deployment/orchestrator-service'
+      - '-n'
+      - 'travel-concierge'
+      - '--timeout=300s'
+    id: 'wait-orchestrator-rollout'
+    waitFor: ['update-orchestrator']
+  
+  # Wait for Image Search Agent rollout
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'rollout'
+      - 'status'
+      - 'deployment/image-search-agent'
+      - '-n'
+      - 'travel-concierge'
+      - '--timeout=300s'
+    id: 'wait-image-search-agent-rollout'
+    waitFor: ['update-image-search-agent']
+  
+  # Wait for Trip Planning Agent rollout
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'rollout'
+      - 'status'
+      - 'deployment/trip-planning-agent'
+      - '-n'
+      - 'travel-concierge'
+      - '--timeout=300s'
+    id: 'wait-trip-planning-agent-rollout'
+    waitFor: ['update-trip-planning-agent']
+  
+  # Wait for Frontend rollout
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'rollout'
+      - 'status'
+      - 'deployment/frontend'
+      - '-n'
+      - 'travel-concierge'
+      - '--timeout=300s'
+    id: 'wait-frontend-rollout'
+    waitFor: ['update-frontend']
+  
+  # =============================================================================
+  # RUN TESTS
+  # =============================================================================
+  
+  # Run unit tests
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['test', '--coverage']
+    dir: 'src/orchestrator'
+    id: 'unit-tests'
+    waitFor: ['wait-orchestrator-rollout', 'wait-image-search-agent-rollout', 'wait-trip-planning-agent-rollout', 'wait-frontend-rollout']
+  
+  # Run integration tests
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['run', 'test:integration']
+    dir: 'tests'
+    id: 'integration-tests'
+    waitFor: ['unit-tests']
+  
+  # Run end-to-end tests
+  - name: 'mcr.microsoft.com/playwright:v1.40.0'
+    args:
+      - 'npx'
+      - 'playwright'
+      - 'test'
+      - '--reporter=json'
+      - '--output=/workspace/e2e-results.json'
+    dir: 'tests/e2e'
+    id: 'e2e-tests'
+    waitFor: ['integration-tests']
+  
+  # =============================================================================
+  # PERFORMANCE TESTING
+  # =============================================================================
+  
+  # Run load tests
+  - name: 'artilleryio/artillery:latest'
+    args:
+      - 'run'
+      - 'tests/load/load-test.yml'
+      - '--output'
+      - '/workspace/load-test-results.json'
+    id: 'load-tests'
+    waitFor: ['e2e-tests']
+  
+  # =============================================================================
+  # SECURITY POST-DEPLOYMENT CHECKS
+  # =============================================================================
+  
+  # Run post-deployment security scan
+  - name: 'aquasec/trivy'
+    args:
+      - 'image'
+      - '--severity'
+      - 'HIGH,CRITICAL'
+      - '--format'
+      - 'json'
+      - '--output'
+      - '/workspace/post-deployment-trivy-scan.json'
+      - 'gcr.io/$PROJECT_ID/orchestrator-service:$COMMIT_SHA'
+    id: 'post-deployment-security-scan'
+    waitFor: ['load-tests']
+  
+  # Run post-deployment API security scan
+  - name: 'owasp/zap2docker-stable'
+    args:
+      - 'zap-baseline.py'
+      - '-t'
+      - 'https://travel-concierge.com'
+      - '-J'
+      - '/workspace/post-deployment-zap-scan.json'
+    id: 'post-deployment-api-scan'
+    waitFor: ['load-tests']
+  
+  # =============================================================================
+  # MONITORING AND ALERTING
+  # =============================================================================
+  
+  # Deploy monitoring stack
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'apply'
+      - '-f'
+      - 'k8s/monitoring/'
+      - '-n'
+      - 'monitoring'
+    id: 'deploy-monitoring'
+    waitFor: ['post-deployment-security-scan', 'post-deployment-api-scan']
+  
+  # Deploy alerting rules
+  - name: 'gcr.io/cloud-builders/kubectl'
+    args:
+      - 'apply'
+      - '-f'
+      - 'k8s/monitoring/alertmanager-rules.yaml'
+      - '-n'
+      - 'monitoring'
+    id: 'deploy-alerts'
+    waitFor: ['deploy-monitoring']
+  
+  # =============================================================================
+  # HEALTH CHECKS
+  # =============================================================================
+  
+  # Health check for Orchestrator
+  - name: 'gcr.io/cloud-builders/curl'
+    args:
+      - '-f'
+      - 'https://api.travel-concierge.com/health'
+    id: 'health-check-orchestrator'
+    waitFor: ['deploy-alerts']
+  
+  # Health check for Frontend
+  - name: 'gcr.io/cloud-builders/curl'
+    args:
+      - '-f'
+      - 'https://travel-concierge.com/health'
+    id: 'health-check-frontend'
+    waitFor: ['deploy-alerts']
+  
+  # =============================================================================
+  # LOAD TESTING
+  # =============================================================================
+  
+  # Run production load test
+  - name: 'artilleryio/artillery:latest'
+    args:
+      - 'run'
+      - 'tests/load/production-load-test.yml'
+      - '--output'
+      - '/workspace/production-load-test-results.json'
+    id: 'production-load-test'
+    waitFor: ['health-check-orchestrator', 'health-check-frontend']
+  
+  # =============================================================================
+  # CLEANUP
+  # =============================================================================
+  
+  # Clean up old images
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'container'
+      - 'images'
+      - 'list-tags'
+      - 'gcr.io/$PROJECT_ID/orchestrator-service'
+      - '--format=value(digest)'
+      - '--limit=10'
+      - '--sort-by=~timestamp'
+    id: 'list-old-images'
+    waitFor: ['production-load-test']
+  
+  # =============================================================================
+  # NOTIFICATIONS
+  # =============================================================================
+  
+  # Send deployment notification
+  - name: 'gcr.io/cloud-builders/curl'
+    args:
+      - '-X'
+      - 'POST'
+      - '-H'
+      - 'Content-Type: application/json'
+      - '-d'
+      - '{"text":"Deployment completed successfully for Travel Concierge Platform"}'
+      - '$_SLACK_WEBHOOK_URL'
+    id: 'send-notification'
+    waitFor: ['list-old-images']
+
+# =============================================================================
+# SUBSTITUTIONS
+# =============================================================================
+
+substitutions:
+  _PROJECT_ID: 'travel-concierge-prod'
+  _REGION: 'us-central1'
+  _ENVIRONMENT: 'production'
+  _SONAR_HOST: 'https://sonarcloud.io'
+  _SONAR_TOKEN: 'your-sonar-token'
+  _SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/your/webhook/url'
+
+# =============================================================================
+# OPTIONS
+# =============================================================================
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+  diskSizeGb: '100'
+  env:
+    - 'DOCKER_BUILDKIT=1'
+    - 'COMPOSE_DOCKER_CLI_BUILD=1'
+
+# =============================================================================
+# ARTIFACTS
+# =============================================================================
+
+artifacts:
+  objects:
+    location: 'gs://travel-concierge-build-artifacts/'
+    paths:
+      - '/workspace/trivy-scan.json'
+      - '/workspace/zap-scan.json'
+      - '/workspace/pci-compliance.json'
+      - '/workspace/gdpr-compliance.json'
+      - '/workspace/ccpa-compliance.json'
+      - '/workspace/e2e-results.json'
+      - '/workspace/load-test-results.json'
+      - '/workspace/post-deployment-trivy-scan.json'
+      - '/workspace/post-deployment-zap-scan.json'
+      - '/workspace/production-load-test-results.json'
+
+# =============================================================================
+# TIMEOUT
+# =============================================================================
+
+timeout: '3600s' 
